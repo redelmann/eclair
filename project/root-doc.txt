@@ -1,0 +1,5 @@
+==Overview==
+
+Éclair is a Scala  parsing library.
+Éclair implements the parsing with derivatives and zippers algorithm.
+See the package [[eclair]] for more information.
