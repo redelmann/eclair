@@ -190,6 +190,17 @@ trait Combinators { self: Tokens with Graphs =>
         }.opt(Vector())
       }
 
+    /** Repetition of `this` syntax at least `n` times.
+      *
+      * @param n Minimum number of repetitions.
+      *
+      * @group combinator
+      */
+    def atLeast(n: Int): Syntax[Vector[A]] =
+      (this.times(n) ~ many(this)).map {
+        case xs ~ ys => xs ++ ys
+      }
+
     /** Repetition of `this` syntax between `min` and `max` times.
       *
       * @param min Minimum number of repetitions.
