@@ -13,6 +13,16 @@ trait Combinators { self: Tokens with Graphs =>
     */
   trait Combinable[+A] { self: Syntax[A] =>
 
+    /** For performance, indicates that `this` syntax can be accessed
+      * from multiple points.
+      *
+      * @group combinator
+      */
+    lazy val shared: Syntax[A] = this match {
+      case r: Syntax.Recursive[A] => r
+      case _ => Syntax.Recursive.create(this)
+    }
+
     /** Applies a function to the parsed values.
       *
       * @group combinator
@@ -103,7 +113,7 @@ trait Combinators { self: Tokens with Graphs =>
       */
     def repeatLeft[B](first: B)(append: (B, A) => B): Syntax[B] = {
       lazy val res: Syntax[B] = recursive {
-        (res ~ this).map {
+        (res ~ this.shared).map {
           case acc ~ x => append(acc, x)
         }.opt(first)
       }
@@ -185,7 +195,7 @@ trait Combinators { self: Tokens with Graphs =>
         success(Vector())
       }
       else {
-        (atMost(n - 1) ~ this).map {
+        (atMost(n - 1) ~ this.shared).map {
           case xs ~ x => xs :+ x
         }.opt(Vector())
       }
@@ -309,10 +319,12 @@ trait Combinators { self: Tokens with Graphs =>
     * @group combinator
     */
   def rep1sep[A, B](rep: Syntax[A], sep: Syntax[B]): Syntax[(Vector[A], Vector[B])] = {
+    val shared = rep.shared
+
     lazy val res: Syntax[(Vector[A], Vector[B])] = recursive {
-      (res ~ sep ~ rep).map {
+      (res ~ sep ~ shared).map {
         case (rs, ss) ~ s ~ r => (rs :+ r, ss :+ s)
-      } | rep.map(r => (Vector[A](r), Vector[B]()))
+      } | shared.map(r => (Vector[A](r), Vector[B]()))
     }
 
     res
@@ -327,10 +339,12 @@ trait Combinators { self: Tokens with Graphs =>
     * @group combinator
     */
   def infixLeft[A](operand: Syntax[A])(operator: Syntax[(A, A) => A]): Syntax[A] = {
+    val shared = operand.shared
+
     lazy val res: Syntax[A] = recursive {
-      (res ~ operator ~ operand).map {
+      (res ~ operator ~ shared).map {
         case x ~ f ~ y => f(x, y)
-      } | operand
+      } | shared
     }
 
     res
