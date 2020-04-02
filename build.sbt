@@ -31,4 +31,18 @@ lazy val eclair = project
     ),
   )
 
+lazy val example = project
+  .in(file("example"))
+  .settings(
+    commonSettings,
+    name := "eclair-examples",
+    scalaSource in Compile := baseDirectory.value,
+    scalacOptions ++= Seq(
+      "-deprecation",
+      "-feature",
+      "-unchecked"
+    ),
+  )
+  .dependsOn(eclair)
+
 

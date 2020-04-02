@@ -1,6 +1,8 @@
 package eclair
 package traits
 
+import scala.language.implicitConversions
+
 /** Contains combinators for building syntaxes.
   *
   * @group trait
@@ -270,18 +272,8 @@ trait Combinators { self: Tokens with Graphs =>
     *
     * @group combinator
     */
-  def elem(kind: Kind): Syntax[Token] =
+  implicit def elem[A](kind: Kind[A]): Syntax[A] =
     Syntax.Elem(kind)
-
-  /** Syntax that describes a single token of a given `kind`.
-    *
-    * @param kind     The kind of the accepted tokens.
-    * @param function The function to apply to the accepted tokens.
-    *
-    * @group combinator
-    */
-  def accept[A](kind: Kind)(function: PartialFunction[Token, A]): Syntax[A] =
-    elem(kind).map(function)
 
   /** Recursive syntax.
     *

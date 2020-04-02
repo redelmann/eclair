@@ -11,18 +11,20 @@ trait Results { self: Parsers with Tokens =>
     *
     * @group result
     */
-  type Result[+A]
+  type ResultValue[+A]
+
+  private[eclair] type Result[+A]
 
   private[eclair] val resultBuilder: ResultBuilder
 
   private[eclair] trait ResultBuilder {
-    def token(token: Token): Result[Token]
     def single[A](value: A): Result[A]
     def union[A](left: Result[A], right: Result[A]): Result[A]
     def pair[A, B](left: Result[A], right: Result[B]): Result[A ~ B]
     def map[A, B](inner: Result[A], function: A => B): Result[B]
     def join[A](inner: Result[A]): (Result[A], Result[A] => Unit)
     def rec[A](inner: Result[A] => Result[A]): Result[A]
+    def get[A](result: Result[A]): ResultValue[A]
   }
 
   /** Type of parse results.
@@ -30,17 +32,20 @@ trait Results { self: Parsers with Tokens =>
     * @group result
     */
   sealed trait ParseResult[+A] {
+    def get: Option[ResultValue[A]]
     val rest: Parser[A]
   }
 
-  /** Success parse.
+  /** Successful parse.
     *
     * @param values The description of parse value.
     * @param rest   Parser for more input.
     *
     * @group result
     */
-  case class Parsed[+A](values: Result[A], rest: Parser[A]) extends ParseResult[A]
+  case class Parsed[+A](values: ResultValue[A], rest: Parser[A]) extends ParseResult[A] {
+    override def get: Option[ResultValue[A]] = Some(values)
+  }
 
   /** Unsuccessful parse due to an unexpected token.
     *
@@ -49,7 +54,9 @@ trait Results { self: Parsers with Tokens =>
     *
     * @group result
     */
-  case class UnexpectedToken[+A](token: Token, rest: Parser[A]) extends ParseResult[A]
+  case class UnexpectedToken[+A](token: Token, rest: Parser[A]) extends ParseResult[A] {
+    override def get: Option[ResultValue[A]] = None
+  }
 
 
   /** Unsuccessful parse due to an unexpected end of input.
@@ -58,7 +65,9 @@ trait Results { self: Parsers with Tokens =>
     *
     * @group result
     */
-  case class UnexpectedEnd[+A](rest: Parser[A]) extends ParseResult[A]
+  case class UnexpectedEnd[+A](rest: Parser[A]) extends ParseResult[A] {
+    override def get: Option[ResultValue[A]] = None
+  }
 
 
 }

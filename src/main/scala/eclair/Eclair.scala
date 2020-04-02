@@ -1,8 +1,9 @@
 package eclair
 
 import eclair.traits._
+import eclair.traits.result._
 
-/** Contains types and methods for building recogniser.
+/** Contains types and methods for building parsers.
   * The type of results is left unspecified.
   *
   * @group eclair
@@ -17,21 +18,21 @@ trait Eclair extends Combinators
   *
   * @group eclair
   */
-trait EclairRecogniser extends Eclair
-                          with result.Units
+trait EclairUnit extends Eclair
+                    with ResultUnit
 
 /** Contains types and methods for building a parser.
   * Only a single value is returned in case of successful parses.
   *
   * @group eclair
   */
-trait EclairParser extends Eclair
-                      with result.Singles
+trait EclairSingle extends Eclair
+                      with ResultSingle
 
 /** Contains types and methods for building a parser.
   * All accepted values are returned (as an iterator) in case of successful parses.
   *
   * @group eclair
   */
-trait EclairParserAll extends Eclair
-                         with result.Closeds
+trait EclairAll extends Eclair
+                   with ResultAll

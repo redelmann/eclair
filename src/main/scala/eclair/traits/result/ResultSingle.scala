@@ -8,19 +8,22 @@ import scala.collection.mutable.ListBuffer
   *
   * @group trait
   */
-trait Singles extends Results { self: Tokens with Parsers =>
-  override type Result[+A] = Single[A]
+trait ResultSingle extends Results { self: Tokens with Parsers =>
+
+  override type ResultValue[+A] = A
+
+  override private[eclair] type Result[+A] = Single[A]
 
   /** Description of an accepted value.
     *
     * @group result
     */
-  trait Single[+A]{
+  private[eclair] trait Single[+A]{
 
     /** Returns the accepted value. */
     def get: A
 
-    private[Singles] def register(callback: A => Unit): Unit
+    private[ResultSingle] def register(callback: A => Unit): Unit
   }
 
   private class SingleJoin[A] extends Single[A] {
@@ -31,7 +34,7 @@ trait Singles extends Results { self: Tokens with Parsers =>
       case Right(_) => throw new IllegalStateException("SingleJoin not set.")
     }
 
-    override private[Singles] def register(callback: A => Unit): Unit = state match {
+    override private[ResultSingle] def register(callback: A => Unit): Unit = state match {
       case Left(value) => callback(value)
       case Right(buffer) => buffer += callback
     }
@@ -60,7 +63,7 @@ trait Singles extends Results { self: Tokens with Parsers =>
       case _ => throw new IllegalStateException("SingleMerge not set.")
     }
 
-    override private[Singles] def register(callback: (A ~ B) => Unit): Unit = state match {
+    override private[ResultSingle] def register(callback: (A ~ B) => Unit): Unit = state match {
       case HasBoth(value) => callback(value)
       case HasLeft(_, buffer) => buffer += callback
       case HasRight(_, buffer) => buffer += callback
@@ -94,13 +97,11 @@ trait Singles extends Results { self: Tokens with Parsers =>
 
   private case class SingleDirect[A](get: A) extends Single[A] {
 
-    override private[Singles] def register(callback: A => Unit): Unit =
+    override private[ResultSingle] def register(callback: A => Unit): Unit =
       callback(get)
   }
 
   override private[eclair] val resultBuilder: ResultBuilder = new ResultBuilder {
-    override def token(token: Token): Result[Token] =
-      SingleDirect(token)
     override def single[A](value: A): Result[A] =
       SingleDirect(value)
     override def union[A](left: Result[A], right: Result[A]): Result[A] = {
@@ -131,5 +132,7 @@ trait Singles extends Results { self: Tokens with Parsers =>
       inner.register((value: A) => result.inform(value))
       result
     }
+    override def get[A](result: Result[A]): ResultValue[A] =
+      result.get
   }
 }

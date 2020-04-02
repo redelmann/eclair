@@ -10,12 +10,13 @@ import eclair.util._
   *
   * @group trait
   */
-trait Closeds extends Results { self: Tokens with Parsers =>
-  override type Result[+A] = Closed[A]
+trait ResultAll extends Results { self: Tokens with Parsers =>
+
+  override type ResultValue[+A] = Iterator[A]
+
+  override private[eclair] type Result[+A] = Closed[A]
 
   override private[eclair] val resultBuilder: ResultBuilder = new ResultBuilder {
-    override def token(token: Token): Result[Token] =
-      Closed.Success(token)
     override def single[A](value: A): Result[A] =
       Closed.Success(value)
     override def union[A](left: Result[A], right: Result[A]): Result[A] =
@@ -33,16 +34,13 @@ trait Closeds extends Results { self: Tokens with Parsers =>
       lazy val res: Result[A] = Closed.Recursive.create(inner(res))
       res
     }
+    override def get[A](result: Result[A]): ResultValue[A] =
+      result.getIterator()
   }
 
-  /** Description of accepted values.
-    *
-    * @group result
-    */
-  sealed trait Closed[+A] {
+  private[eclair] sealed trait Closed[+A] {
     override def toString: String = "Closed"
 
-    /** Returns an iterator over all accepted values. */
     def getIterator(): Iterator[A] = getProducer(Map.empty).toIterator()
 
     private[eclair] def ~[B](that: Closed[B]): Closed[A ~ B] = (this, that) match {

@@ -6,12 +6,12 @@ package result
   *
   * @group trait
   */
-trait Units extends Results { self: Tokens with Parsers =>
-  override type Result[+A] = Unit
+trait ResultUnit extends Results { self: Tokens with Parsers =>
+  override type ResultValue[+A] = Unit
+
+  override private[eclair] type Result[+A] = Unit
 
   override private[eclair] val resultBuilder: ResultBuilder = new ResultBuilder {
-    override def token(token: Token): Result[Token] =
-      ()
     override def single[A](value: A): Result[A] =
       ()
     override def union[A](left: Result[A], right: Result[A]): Result[A] =
@@ -23,6 +23,8 @@ trait Units extends Results { self: Tokens with Parsers =>
     override def join[A](inner: Result[A]): (Result[A], Result[A] => Unit) =
       ((), (_: Result[A]) => ())
     override def rec[A](inner: Result[A] => Result[A]): Result[A] =
+      ()
+    override def get[A](result: Result[A]): ResultValue[A] =
       ()
   }
 }

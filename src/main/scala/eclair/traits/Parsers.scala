@@ -28,7 +28,7 @@ trait Parsers { self: Results with Tokens =>
       *
       * @group property
       */
-    def first: Set[Kind]
+    def firstSet: Set[Kind[Any]]
 
     /** Checks whether `this` parser accepts the empty sequence.
       *

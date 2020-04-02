@@ -23,6 +23,10 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
     override def apply(tokens: Iterator[Token]): ParseResult[A] =
       Alternatives(Seq(FocusedSyntax(this)), Seq.empty)(tokens)
 
+    override def firstSet: Set[Kind[Any]] = KindSet.toSet(first)
+
+    private[eclair] def first: KindSet
+
     private[eclair] def init(): Unit
 
     private[eclair] def nullRecs: Set[Int]
@@ -32,10 +36,10 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
 
     private[eclair] def registerProductive(callback: () => Unit): Unit
     private[eclair] def registerNullable(callback: () => Unit): Unit
-    private[eclair] def registerFirst(callback: Set[Kind] => Unit): Unit
+    private[eclair] def registerFirst(callback: KindSet => Unit): Unit
     private[eclair] def registerNullRecs(callback: Set[Int] => Unit): Unit
 
-    private[eclair] def pierce[B](kind: Kind, context: Context[A, B], state: PierceState[B]): Unit =
+    private[eclair] def pierce[B](signature: KindSet, context: Context[A, B], state: PierceState[B]): Unit =
       throw new IllegalStateException("Pierce is not supported on this object.")
   }
 
@@ -52,7 +56,7 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
       override private[eclair] def registerNullable(callback: () => Unit): Unit =
         if (isNullable) callback() else ()
 
-      override private[eclair] def registerFirst(callback: Set[Kind] => Unit): Unit =
+      override private[eclair] def registerFirst(callback: KindSet => Unit): Unit =
         if (first.nonEmpty) callback(first) else ()
 
       override private[eclair] def registerNullRecs(callback: Set[Int] => Unit): Unit =
@@ -72,12 +76,12 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
 
       protected def setup(): Unit
 
-      private var firstSubscribers: Seq[Set[Kind] => Unit] = Seq.empty
+      private var firstSubscribers: Seq[KindSet => Unit] = Seq.empty
       private var productiveSubscribers: Seq[() => Unit] = Seq.empty
       private var nullableSubscribers: Seq[() => Unit] = Seq.empty
       private var nullRecsSubscribers: Seq[Set[Int] => Unit] = Seq.empty
 
-      private var _first: Set[Kind] = Set.empty
+      private var _first: KindSet = KindSet.empty
       private var _isProductive: Boolean = false
       private var _isNullable: Boolean = false
       private var _nullRecs: Set[Int] = Set.empty
@@ -88,7 +92,7 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
       override private[eclair] def registerNullable(callback: () => Unit): Unit =
         if (_isNullable) callback() else nullableSubscribers +:= callback
 
-      override private[eclair] def registerFirst(callback: Set[Kind] => Unit): Unit = {
+      override private[eclair] def registerFirst(callback: KindSet => Unit): Unit = {
         firstSubscribers +:= callback
         if (_first.nonEmpty) callback(_first)
       }
@@ -98,7 +102,7 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
         if (_nullRecs.nonEmpty) callback(_nullRecs)
       }
 
-      private[eclair] def addFirst(kinds: Set[Kind]): Unit = {
+      private[eclair] def addFirst(kinds: KindSet): Unit = {
         val newKinds = kinds -- _first
         _first = _first union newKinds
         if (newKinds.nonEmpty) {
@@ -126,7 +130,7 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
         nullableSubscribers = Seq.empty
       }
 
-      override lazy val first: Set[Kind] = {
+      override lazy val first: KindSet = {
         init()
         _first
       }
@@ -145,7 +149,7 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
     }
 
     case class Success[+A](value: A) extends BasicSyntax[A] {
-      override val first: Set[Kind] = Set.empty
+      override val first: KindSet = KindSet.empty
       override val isProductive: Boolean = true
       override val isNullable: Boolean = true
 
@@ -153,7 +157,7 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
     }
 
     case object Failure extends BasicSyntax[Nothing] {
-      override val first: Set[Kind] = Set.empty
+      override val first: KindSet = KindSet.empty
       override val isProductive: Boolean = false
       override val isNullable: Boolean = false
 
@@ -161,17 +165,16 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
         throw new UnsupportedOperationException("Failure is not nullable.")
     }
 
-    case class Elem(kind: Kind) extends BasicSyntax[Token] {
-      override val first: Set[Kind] = Set(kind)
+    case class Elem[A](kind: Kind[A]) extends BasicSyntax[A] {
+      override val first: KindSet = KindSet(kind)
       override val isProductive: Boolean = true
       override val isNullable: Boolean = false
 
-      override protected def close(recs: Map[Int, Result[Any]]): Result[Token] =
+      override protected def close(recs: Map[Int, Result[Any]]): Result[A] =
         throw new UnsupportedOperationException("Elem is not nullable.")
 
-      override private[eclair] def pierce[B](other: Kind, context: Context[Token, B], state: PierceState[B]): Unit = {
-        assert(other == kind)
-        state.registerResult(context)
+      override private[eclair] def pierce[B](signature: KindSet, context: Context[A, B], state: PierceState[B]): Unit = {
+        state.registerResult(kind, context)
       }
     }
 
@@ -206,18 +209,22 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
         }
       }
 
-      override private[eclair] def pierce[B](kind: Kind, context: Context[A, B], state: PierceState[B]): Unit = {
-        val inLeft = left.first.contains(kind)
-        if (inLeft && right.first.contains(kind)) {
+      override private[eclair] def pierce[B](signature: KindSet, context: Context[A, B], state: PierceState[B]): Unit = {
+        val signLeft = signature & left.first
+        val signRight = signature & right.first
+
+        val inLeft = signLeft.nonEmpty
+
+        if (inLeft && signRight.nonEmpty) {
           val join = Context.Join.create(context)
-          left.pierce(kind, join, state)
-          right.pierce(kind, join, state)
+          left.pierce(signLeft, join, state)
+          right.pierce(signRight, join, state)
         }
         else if (inLeft) {
-          left.pierce(kind, context, state)
+          left.pierce(signLeft, context, state)
         }
         else {
-          right.pierce(kind, context, state)
+          right.pierce(signRight, context, state)
         }
       }
     }
@@ -249,7 +256,7 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
           if (nullLeft) setNullable()
         })
 
-        var firstFromLeft: Option[Set[Kind]] = Some(Set.empty)
+        var firstFromLeft: Option[KindSet] = Some(KindSet.empty)
         left.registerFirst(kinds => firstFromLeft match {
           case None => addFirst(kinds)
           case Some(oldKinds) => firstFromLeft = Some(oldKinds union kinds)
@@ -262,7 +269,7 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
           }
         })
 
-        var firstFromRight: Option[Set[Kind]] = Some(Set.empty)
+        var firstFromRight: Option[KindSet] = Some(KindSet.empty)
         left.registerNullable(() => firstFromRight match {
           case None => ()
           case Some(kinds) => {
@@ -306,18 +313,22 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
         resultBuilder.pair(left.close(recs), right.close(recs))
       }
 
-      override private[eclair] def pierce[C](kind: Kind, context: Context[A ~ B, C], state: PierceState[C]): Unit = {
-        val inLeft = left.first.contains(kind)
-        if (inLeft && left.isNullable && right.first.contains(kind)) {
+      override private[eclair] def pierce[C](signature: KindSet, context: Context[A ~ B, C], state: PierceState[C]): Unit = {
+        val signLeft = signature & left.first
+        val signRight = signature & right.first
+
+        val inLeft = signLeft.nonEmpty
+
+        if (inLeft && left.isNullable && signRight.nonEmpty) {
           val join = Context.Join.create(context)
-          left.pierce(kind, Context.FollowBy(right, join), state)
-          right.pierce(kind, Context.Prepend(left.close, join), state)
+          left.pierce(signLeft, Context.FollowBy(right, join), state)
+          right.pierce(signRight, Context.Prepend(left.close, join), state)
         }
         else if (inLeft) {
-          left.pierce(kind, Context.FollowBy(right, context), state)
+          left.pierce(signLeft, Context.FollowBy(right, context), state)
         }
         else {
-          right.pierce(kind, Context.Prepend(left.close, context), state)
+          right.pierce(signRight, Context.Prepend(left.close, context), state)
         }
       }
     }
@@ -336,8 +347,8 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
         resultBuilder.map(inner.close(recs), function)
       }
 
-      override private[eclair] def pierce[C](kind: Kind, context: Context[B, C], state: PierceState[C]): Unit = {
-        inner.pierce(kind, Context.Apply(function, context), state)
+      override private[eclair] def pierce[C](signature: KindSet, context: Context[B, C], state: PierceState[C]): Unit = {
+        inner.pierce(signature, Context.Apply(function, context), state)
       }
     }
 
@@ -376,14 +387,14 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
         this.registerNullable(() => callback(Set(id)))
       }
 
-      override private[eclair] def pierce[B](kind: Kind, context: Context[A, B], state: PierceState[B]): Unit = {
+      override private[eclair] def pierce[B](signature: KindSet, context: Context[A, B], state: PierceState[B]): Unit = {
         state.get(this) match {
           case Some(buffer) => buffer += context
           case None => {
             val buffer: Buffer[Context[A, B]] = new ListBuffer
             state.set(this, buffer)
             val shared = Context.Share(context, buffer)
-            inner.pierce(kind, shared, state)
+            inner.pierce(signature, shared, state)
           }
         }
       }
@@ -446,11 +457,14 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
       joinEntries += join.id -> adder
   }
 
-  private class PierceState[A] {
-    private var results: Seq[Context[Token, A]] = Seq.empty
+  private class PierceState[A](private val mappings: KindMappings) {
+    private var results: Seq[FocusedResult[A]] = Seq.empty
     private var recEntries: Map[Int, Any] = Map.empty
-    def registerResult(context: Context[Token, A]): Unit = results +:= context
-    def retrieveResults(): Seq[Context[Token, A]] = {
+    def registerResult[B](kind: Kind[B], context: Context[B, A]): Unit = {
+      val value: B = KindMappings.get(mappings, kind)
+      results +:= FocusedResult.Pair(resultBuilder.single(value), context)
+    }
+    def retrieveResults(): Seq[FocusedResult[A]] = {
       val res = results
       results = Seq.empty
       res
@@ -472,18 +486,18 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
   }
 
   private sealed trait FocusedSyntax[A] {
-    def pierce(kind: Kind, state: PierceState[A]): Unit
+    def pierce(signature: KindSet, state: PierceState[A]): Unit
     def close: FocusedResult[A]
-    def first: Set[Kind]
+    def first: KindSet
   }
   private object FocusedSyntax {
     def apply[A](syntax: Syntax[A]): FocusedSyntax[A] = Pair(syntax, Context.Empty[A]())
     case class Pair[A, B](focus: Syntax[A], context: Context[A, B]) extends FocusedSyntax[B] {
-      override def pierce(kind: Kind, state: PierceState[B]): Unit =
-        focus.pierce(kind, context, state)
+      override def pierce(signature: KindSet, state: PierceState[B]): Unit =
+        focus.pierce(signature, context, state)
       override def close: FocusedResult[B] =
         FocusedResult.Pair(focus.close, context)
-      override def first: Set[Kind] =
+      override lazy val first: KindSet =
         if (focus.isNullable) focus.first union context.first else focus.first
     }
   }
@@ -502,9 +516,9 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
     def apply(syntax: Syntax[A]): FocusedSyntax[B] = FocusedSyntax.Pair(syntax, this)
     def apply(result: Result[A]): FocusedResult[B] = FocusedResult.Pair(result, this)
     def init(): Unit
-    def registerFirst(callback: Set[Kind] => Unit): Unit
+    def registerFirst(callback: KindSet => Unit): Unit
     def plugStep(result: Result[A], state: PlugState[B]): Option[FocusedResult[B]]
-    def first: Set[Kind]
+    def first: KindSet
   }
 
   private sealed trait LayerContext[A, B] extends Context[A, B] {
@@ -517,15 +531,16 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
         inited = true
         setup()
         stable = true
+        firstSubscribers = Seq.empty
       }
     }
 
     protected def setup(): Unit
 
-    private var firstSubscribers: Seq[Set[Kind] => Unit] = Seq.empty
-    private var _first: Set[Kind] = Set.empty
+    private var firstSubscribers: Seq[KindSet => Unit] = Seq.empty
+    private var _first: KindSet = KindSet.empty
 
-    override def registerFirst(callback: Set[Kind] => Unit): Unit = {
+    override def registerFirst(callback: KindSet => Unit): Unit = {
       if (!stable) {
         firstSubscribers +:= callback
       }
@@ -534,7 +549,7 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
       }
     }
 
-    private[eclair] def addFirst(kinds: Set[Kind]): Unit = {
+    private[eclair] def addFirst(kinds: KindSet): Unit = {
       val newKinds = kinds -- _first
       _first = _first union newKinds
       if (newKinds.nonEmpty) {
@@ -542,7 +557,7 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
       }
     }
 
-    override lazy val first: Set[Kind] = {
+    override lazy val first: KindSet = {
       init()
       _first
     }
@@ -550,9 +565,9 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
 
   private object Context {
     case class Empty[A]() extends Context[A, A] {
-      override def registerFirst(callback: Set[Kind] => Unit): Unit = ()
+      override def registerFirst(callback: KindSet => Unit): Unit = ()
       override def init(): Unit = ()
-      override val first: Set[Kind] = Set.empty
+      override val first: KindSet = KindSet.empty
       override def plugStep(result: Result[A], state: PlugState[A]): Option[FocusedResult[A]] = {
         state.registerDone(result)
         None
@@ -648,7 +663,8 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
 
       while (tokens.hasNext) {
         val token = tokens.next()
-        val kind = getKind(token)
+        val firsts = currents.foldLeft(KindSet.empty)(_ union _.first)
+        val (signature, mappings) = KindSet.get(firsts, token)
 
         // Locating
         val locateds = {
@@ -658,10 +674,10 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
           @inline
           def locate(focused: FocusedSyntax[A]): Unit = focused match {
             case FocusedSyntax.Pair(syntax, context) => {
-              if (syntax.first.contains(kind)) {
+              if ((syntax.first & signature).nonEmpty) {
                 locateState.registerLocated(focused)
               }
-              if (syntax.isNullable && context.first.contains(kind)) {
+              if (syntax.isNullable && (context.first & signature).nonEmpty) {
                 focused.close.plug(plugState)
               }
             }
@@ -695,20 +711,18 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
 
         // Piercing
         val pierceds = {
-          val pierceState = new PierceState[A]
+          val pierceState = new PierceState[A](mappings)
           for (located <- locateds) {
-            located.pierce(kind, pierceState)
+            located.pierce(signature, pierceState)
           }
 
           pierceState.retrieveResults()
         }
 
-        // Putting token into context
-        val result = resultBuilder.token(token)
         val plugState = new PlugState[A]
 
         for (pierced <- pierceds) {
-          pierced(result).plug(plugState)
+          pierced.plug(plugState)
         }
 
         var changed = true
@@ -729,7 +743,7 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
       val newState = Alternatives(currents, currentResults)
 
       newState.result match {
-        case Some(result) => Parsed(result, newState)
+        case Some(result) => Parsed(resultBuilder.get(result), newState)
         case None => UnexpectedEnd(newState)
       }
     }
@@ -777,10 +791,10 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
       }
     }
 
-    override lazy val first: Set[Kind] = actives.foldLeft(Set.empty[Kind]) {
+    override lazy val firstSet: Set[Kind[Any]] = KindSet.toSet(actives.foldLeft(KindSet.empty) {
       case (acc, focused) => acc union focused.first
-    }
+    })
     override def isNullable: Boolean = result.nonEmpty
-    override def isProductive: Boolean = isNullable || first.nonEmpty
+    override def isProductive: Boolean = isNullable || firstSet.nonEmpty
   }
 }
