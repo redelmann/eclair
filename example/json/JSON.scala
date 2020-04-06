@@ -229,55 +229,69 @@ object JSONLexer {
 object JSONParser {
 
 
-  private val eclairLibrary = library[Token]
+  val eclairLibrary = library[Token]
   import eclairLibrary._
 
-  private val stringValue: Kind[StringValue] = acceptWith {
+  val stringValue: Kind[StringValue] = acceptWith("string") {
     case StringToken(value) => StringValue(value)
   }
 
-  private val booleanValue: Kind[BooleanValue] = acceptWith {
+  val booleanValue: Kind[BooleanValue] = acceptWith("boolean") {
     case BooleanToken(value) => BooleanValue(value)
   }
 
-  private val numberValue: Kind[NumberValue] = acceptWith {
+  val numberValue: Kind[NumberValue] = acceptWith("number") {
     case NumberToken(value) => NumberValue(value)
   }
 
-  private val nullValue: Kind[NullValue] = acceptWith {
+  val nullValue: Kind[NullValue] = acceptWith("null") {
     case NullToken() => NullValue()
   }
 
-  private val openSquare: Kind[Token] = acceptWhen(_ == SquareBracketToken(true))
-  private val closeSquare: Kind[Token] = acceptWhen(_ == SquareBracketToken(false))
-  private val openCurly: Kind[Token] = acceptWhen(_ == CurlyBracketToken(true))
-  private val closeCurly: Kind[Token] = acceptWhen(_ == CurlyBracketToken(false))
-  private val colon: Kind[Token] = acceptWhen(_ == ColonToken())
-  private val comma: Kind[Token] = acceptWhen(_ == CommaToken())
+  val openSquare: Kind[Token] = acceptWhen("[")(_ == SquareBracketToken(true))
+  val closeSquare: Kind[Token] = acceptWhen("]")(_ == SquareBracketToken(false))
+  val openCurly: Kind[Token] = acceptWhen("{")(_ == CurlyBracketToken(true))
+  val closeCurly: Kind[Token] = acceptWhen("}")(_ == CurlyBracketToken(false))
+  val colon: Kind[Token] = acceptWhen(":")(_ == ColonToken())
+  val comma: Kind[Token] = acceptWhen(",")(_ == CommaToken())
 
-  private lazy val arrayValue: Syntax[ArrayValue] =
+  lazy val arrayValue: Syntax[ArrayValue] =
     (openSquare.hide ~ repsep(value, comma) ~ closeSquare.hide).map {
       case (values, _) => ArrayValue(values)
     }
 
-  private lazy val binding: Syntax[Binding] = {
+  lazy val binding: Syntax[Binding] = {
     (stringValue ~ colon.hide ~ value).map {
       case key ~ value => Binding(key, value)
     }
   }
 
-  private lazy val objectValue: Syntax[ObjectValue] = {
+  lazy val objectValue: Syntax[ObjectValue] = {
     (openCurly.hide ~ repsep(binding, comma) ~ closeCurly.hide).map {
       case (bindings, _) => ObjectValue(bindings)
     }
   }
 
-  private lazy val value: Syntax[Value] = recursive {
+  lazy val value: Syntax[Value] = recursive {
     stringValue | booleanValue | numberValue | nullValue | arrayValue | objectValue
   }
 
   def apply(tokens: Iterator[Token]): Option[Value] = {
     value(tokens).get
+  }
+
+  def main(args: Array[String]): Unit = {
+    val input = """[1, {"foo": 2.3, "bar": true}, [[{}, []]], null]"""
+    val tokens = JSONLexer(input.iterator)
+    var parser: Parser[Value] = value
+    visualise(parser, "/tmp/", "original")
+    var i = 0
+    for (token <- tokens) {
+      i += 1
+      println(i)
+      parser = parser(Iterator(token)).rest
+      visualise(parser, "/tmp/", "after-token-" + i)
+    }
   }
 }
 
@@ -293,5 +307,11 @@ object Runner {
 
   def apply(file: String): Option[Value] = {
     time(JSONParser(JSONLexer(scala.io.Source.fromFile(file))))
+  }
+
+  def loop(file: String): Unit = {
+    while (true) {
+      JSONParser(JSONLexer(scala.io.Source.fromFile(file)))
+    }
   }
 }

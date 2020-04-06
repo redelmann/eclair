@@ -13,6 +13,7 @@ trait Eclair extends Combinators
                 with Parsers
                 with Results
                 with Tokens
+                with Visualisers
 
 /** Contains types and methods for building recogniser.
   *

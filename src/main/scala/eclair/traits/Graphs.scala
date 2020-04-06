@@ -2,6 +2,7 @@ package eclair
 package traits
 
 import scala.annotation.tailrec
+import scala.collection.immutable.Queue
 import scala.collection.mutable.{ Buffer, ListBuffer }
 
 import eclair.util._
@@ -415,40 +416,38 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
         }
       }
 
-      def unapply[A](syntax: Syntax[A]): Option[(Syntax[A], Int)] = {
-        if (syntax.isInstanceOf[Recursive[_]]) {
-          val casted = syntax.asInstanceOf[Recursive[A]]
-          Some((casted.inner, casted.id))
+      def unapply[A](syntax: Syntax[A]): Option[(Syntax[A], Int)] = syntax match {
+        case s: Recursive[A] => {
+          s.init()
+          Some((s.inner, s.id))
         }
-        else {
-          None
-        }
+        case _ => None
       }
     }
   }
 
   private class PlugState[A] {
-    private var stops: Seq[FocusedSyntax[A]] = Seq.empty
-    private var dones: Seq[Result[A]] = Seq.empty
-    private var nexts: Seq[FocusedResult[A]] = Seq.empty
+    private var stops: Queue[FocusedSyntax[A]] = Queue.empty
+    private var dones: Queue[Result[A]] = Queue.empty
+    private var nexts: Queue[FocusedResult[A]] = Queue.empty
     private var joinEntries: Map[Int, Any] = Map.empty
 
-    def registerStop(stop: FocusedSyntax[A]): Unit = stops +:= stop
-    def registerDone(done: Result[A]): Unit = dones +:= done
-    def registerNext(next: FocusedResult[A]) = nexts +:= next
+    def registerStop(stop: FocusedSyntax[A]): Unit = stops :+= stop
+    def registerDone(done: Result[A]): Unit = dones :+= done
+    def registerNext(next: FocusedResult[A]) = nexts :+= next
     def retrieveDones(): Seq[Result[A]] = {
       val res = dones
-      dones = Seq.empty
+      dones = Queue.empty
       res
     }
     def retrieveNexts(): Seq[FocusedResult[A]] = {
       val res = nexts
-      nexts = Seq.empty
+      nexts = Queue.empty
       res
     }
     def retrieveStops(): Seq[FocusedSyntax[A]] = {
       val res = stops
-      stops = Seq.empty
+      stops = Queue.empty
       res
     }
     def get[B](join: Context.Join[B, A]): Option[Result[B] => Unit] =
@@ -458,15 +457,15 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
   }
 
   private class PierceState[A](private val mappings: KindMappings) {
-    private var results: Seq[FocusedResult[A]] = Seq.empty
+    private var results: Queue[FocusedResult[A]] = Queue.empty
     private var recEntries: Map[Int, Any] = Map.empty
     def registerResult[B](kind: Kind[B], context: Context[B, A]): Unit = {
       val value: B = KindMappings.get(mappings, kind)
-      results +:= FocusedResult.Pair(resultBuilder.single(value), context)
+      results :+= FocusedResult.Pair(resultBuilder.single(value), context)
     }
     def retrieveResults(): Seq[FocusedResult[A]] = {
       val res = results
-      results = Seq.empty
+      results = Queue.empty
       res
     }
     def get[B](rec: Recursive[B]): Option[Buffer[Context[B, A]]] =
@@ -485,12 +484,12 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
     }
   }
 
-  private sealed trait FocusedSyntax[A] {
+  private[eclair] sealed trait FocusedSyntax[A] {
     def pierce(signature: KindSet, state: PierceState[A]): Unit
     def close: FocusedResult[A]
     def first: KindSet
   }
-  private object FocusedSyntax {
+  private[eclair] object FocusedSyntax {
     def apply[A](syntax: Syntax[A]): FocusedSyntax[A] = Pair(syntax, Context.Empty[A]())
     case class Pair[A, B](focus: Syntax[A], context: Context[A, B]) extends FocusedSyntax[B] {
       override def pierce(signature: KindSet, state: PierceState[B]): Unit =
@@ -502,17 +501,17 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
     }
   }
 
-  private sealed trait FocusedResult[A] {
+  private[eclair] sealed trait FocusedResult[A] {
     def plug(state: PlugState[A]): Unit
   }
-  private object FocusedResult {
+  private[eclair] object FocusedResult {
     case class Pair[A, B](focus: Result[A], context: Context[A, B]) extends FocusedResult[B] {
       override def plug(state: PlugState[B]): Unit =
         Context.plug(focus, context, state)
     }
   }
 
-  private sealed trait Context[-A, B] {
+  private[eclair] sealed trait Context[-A, B] {
     def apply(syntax: Syntax[A]): FocusedSyntax[B] = FocusedSyntax.Pair(syntax, this)
     def apply(result: Result[A]): FocusedResult[B] = FocusedResult.Pair(result, this)
     def init(): Unit
@@ -521,7 +520,7 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
     def first: KindSet
   }
 
-  private sealed trait LayerContext[A, B] extends Context[A, B] {
+  private[eclair] sealed trait LayerContext[A, B] extends Context[A, B] {
 
     private var inited: Boolean = false
     private var stable: Boolean = false
@@ -563,7 +562,7 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
     }
   }
 
-  private object Context {
+  private[eclair] object Context {
     case class Empty[A]() extends Context[A, A] {
       override def registerFirst(callback: KindSet => Unit): Unit = ()
       override def init(): Unit = ()
@@ -656,14 +655,18 @@ trait Graphs { self: Results with Parsers with Tokens with Combinators =>
       }
   }
 
-  private case class Alternatives[A](actives: Seq[FocusedSyntax[A]], results: Seq[Result[A]]) extends Parser[A] {
+  private[eclair] case class Alternatives[A](actives: Seq[FocusedSyntax[A]], results: Seq[Result[A]]) extends Parser[A] {
+
     override def apply(tokens: Iterator[Token]): ParseResult[A] = {
       var currents: Seq[FocusedSyntax[A]] = actives
       var currentResults: Seq[Result[A]] = results
 
       while (tokens.hasNext) {
         val token = tokens.next()
-        val firsts = currents.foldLeft(KindSet.empty)(_ union _.first)
+        var firsts = KindSet.empty
+        for (current <- currents) {
+          firsts = firsts union current.first
+        }
         val (signature, mappings) = KindSet.get(firsts, token)
 
         // Locating

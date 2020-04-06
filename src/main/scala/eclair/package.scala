@@ -36,6 +36,9 @@ import eclair.traits.result._
   * @groupprio trait 10
   * @groupname trait Mixed-in Traits
   *
+  * @groupprio visualisation 11
+  * @groupname visualisation Visualisation
+  *
   * @groupprio pairs 100
   * @groupname pairs Pairs
   */
